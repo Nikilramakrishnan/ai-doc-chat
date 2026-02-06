@@ -4,4 +4,6 @@ python-multipart
 pypdf
 pandas
 openpyxl
-
+openai
+python-dotenv
+requests

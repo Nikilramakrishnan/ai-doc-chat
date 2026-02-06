@@ -1,39 +1,67 @@
+#print("🔥 RUNNING FILE:", __file__)
 from fastapi import FastAPI, UploadFile, File
 from pypdf import PdfReader
 import pandas as pd
-import os
+import ollama
+from io import BytesIO
 
 app = FastAPI()
 
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+document_text = ""
 
-@app.get("/")
-def root():
-    return {"message": "AI Doc Chat backend running"}
+
 
 @app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
+def upload_file(file: UploadFile = File(...)):
+    global document_text
+    document_text = ""
 
-    with open(file_path, "wb") as f:
-        f.write(await file.read())
+    filename = file.filename.lower()
 
-    text = ""
-
-    if file.filename.endswith(".pdf"):
-        reader = PdfReader(file_path)
+    if filename.endswith(".pdf"):
+        reader = PdfReader(file.file)
         for page in reader.pages:
-            text += page.extract_text()
+            text = page.extract_text()
+            if text:
+                document_text += text + "\n"
 
-    elif file.filename.endswith(".xlsx"):
-        df = pd.read_excel(file_path)
-        text = df.to_string()
+    elif filename.endswith(".xlsx"):
+        contents = file.file.read()      # ✅ read bytes
+        excel_data = BytesIO(contents)   # ✅ make it seekable
+        df = pd.read_excel(excel_data)   # ✅ pandas-friendly
+        document_text = df.to_string()
 
     else:
         return {"error": "Unsupported file type"}
 
-    return {
-        "filename": file.filename,
-        "text_preview": text[:500]
-    }
+    return {"message": "File uploaded successfully"}
+
+
+
+@app.post("/chat")
+def chat(question: str):
+    global document_text
+
+    if not document_text:
+        return {"error": "No document uploaded"}
+
+    doc_snippet = document_text[:3000]  # LIMIT SIZE
+
+    prompt = f"""
+Answer the question using ONLY the document below.
+
+DOCUMENT:
+{doc_snippet}
+
+QUESTION:
+{question}
+"""
+
+    response = ollama.chat(
+        model="phi3",
+        messages=[
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    return {"answer": response["message"]["content"]}
